@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pantone.io encuentra el Pantone más cercano</title>
+<title>Chip · color medio y Pantone más cercano</title>
 <meta name="description" content="Sube una foto, marca un área y obtén el color medio de esa zona junto al Pantone más cercano.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -55,17 +55,43 @@ body{
 .stage{
   background:var(--stage);
   border-radius:var(--radius);
-  min-height:340px;
-  display:flex;align-items:center;justify-content:center;
-  padding:18px;position:relative;overflow:hidden;
+  height:clamp(360px,64vh,720px);
+  position:relative;overflow:hidden;
 }
 .stage.is-empty{outline:1px dashed rgba(0,0,0,.32);outline-offset:-14px}
 .stage.is-hot{outline-color:var(--sig);outline-style:solid}
+/* zona que se desplaza cuando la imagen es mayor que el escenario */
+.viewport{
+  position:absolute;inset:0;overflow:auto;overscroll-behavior:contain;
+  display:flex;
+  align-items:center;justify-content:center;
+  align-items:safe center;justify-content:safe center;  /* con zoom, evita que se corte por arriba */
+  padding:18px 18px 46px;
+}
+.viewport.pannable canvas#photo,.viewport.pannable{cursor:grab}
+.viewport.panning canvas#photo,.viewport.panning{cursor:grabbing}
 .dropnote{text-align:center;color:#22242a;max-width:34ch}
 .dropnote strong{display:block;font-variation-settings:"wdth" 112,"wght" 700;font-size:19px;margin-bottom:6px}
 .dropnote p{margin:0 0 16px;font-size:13.5px;color:#3a3d44}
-.canvas-holder{position:relative;display:inline-block;line-height:0;max-width:100%}
-canvas#photo{max-width:100%;max-height:64vh;width:auto;height:auto;display:block;cursor:crosshair;touch-action:none}
+.canvas-holder{position:relative;display:block;line-height:0;flex:none}
+canvas#photo{display:block;cursor:crosshair;touch-action:none}
+canvas#photo.px{image-rendering:pixelated}  /* a partir de 400%, píxeles reales sin suavizar */
+
+/* ---------- barra de zoom ---------- */
+.zoombar{
+  position:absolute;right:10px;top:10px;z-index:3;
+  display:flex;align-items:center;gap:1px;
+  background:rgba(20,21,24,.74);backdrop-filter:blur(6px);
+  border:1px solid rgba(255,255,255,.14);border-radius:var(--radius);padding:3px;
+}
+.zoombar button{
+  background:transparent;border:0;color:#e8e6e2;
+  font-family:var(--mono);font-size:12px;font-variation-settings:normal;
+  padding:5px 8px;border-radius:2px;line-height:1;
+}
+.zoombar button:hover:not(:disabled){background:rgba(255,255,255,.15);border-color:transparent}
+.zoombar .z-level{min-width:58px;text-align:center;font-variant-numeric:tabular-nums}
+.zoombar .sep{width:1px;align-self:stretch;background:rgba(255,255,255,.17);margin:3px 4px}
 .marquee{position:absolute;display:none;box-shadow:0 0 0 9999px rgba(0,0,0,.42)}
 .marquee.on{display:block}
 .marquee .edge{position:absolute;inset:0;border:1px solid #fff;outline:1px dashed #000;outline-offset:0;pointer-events:none}
@@ -76,7 +102,7 @@ canvas#photo{max-width:100%;max-height:64vh;width:auto;height:auto;display:block
 .grab.se{right:-9px;bottom:-9px;cursor:nwse-resize}
 .marquee-body{position:absolute;inset:0;cursor:move;touch-action:none}
 .stage-foot{
-  position:absolute;left:0;right:0;bottom:0;padding:7px 12px;
+  position:absolute;left:0;right:0;bottom:0;z-index:2;padding:7px 12px;
   background:rgba(20,21,24,.72);backdrop-filter:blur(6px);
   font-family:var(--mono);font-size:11px;letter-spacing:.04em;color:#d8d6d2;
   display:flex;gap:16px;flex-wrap:wrap;
@@ -167,6 +193,7 @@ button.primary:hover{background:#ff4553}
 
     <div>
       <div class="stage is-empty" id="stage">
+       <div class="viewport" id="viewport">
         <div class="dropnote" id="dropnote">
           <strong>Arrastra una foto aquí</strong>
           <p>También puedes pegarla con Ctrl+V o elegir un archivo. La imagen no sale de tu navegador.</p>
@@ -183,6 +210,15 @@ button.primary:hover{background:#ff4553}
             <div class="grab sw" data-role="sw"></div>
             <div class="grab se" data-role="se"></div>
           </div>
+        </div>
+       </div>
+        <div class="zoombar" id="zoombar" hidden>
+          <button id="zoomOut" aria-label="Alejar" title="Alejar (tecla −)">−</button>
+          <button class="z-level" id="zoomLevel" title="Alternar entre ajustar y 100%">100%</button>
+          <button id="zoomIn" aria-label="Acercar" title="Acercar (tecla +)">+</button>
+          <span class="sep" aria-hidden="true"></span>
+          <button id="zoomFit" title="Ajustar la foto al escenario (tecla 0)">Ajustar</button>
+          <button id="zoomSel" title="Ampliar hasta encuadrar el área seleccionada">Área</button>
         </div>
         <div class="stage-foot" id="foot" hidden></div>
       </div>
@@ -251,6 +287,10 @@ button.primary:hover{background:#ff4553}
     <section>
       <h3>Precisión de la coincidencia</h3>
       <p>El catálogo incluido son valores sRGB aproximados de referencias públicas, no datos oficiales de Pantone LLC. Para trabajo de imprenta, contrasta el resultado con una guía física. Con <code>ΔE00</code> por debajo de 2 la coincidencia es muy buena; por encima de 5, orientativa.</p>
+    </section>
+    <section>
+      <h3>Zoom y navegación</h3>
+      <p>Acércate con los botones de la esquina, con <code>Ctrl</code>+rueda o con las teclas <code>+</code> y <code>−</code>; <code>0</code> ajusta y <code>1</code> vuelve al 100%. Para moverte, mantén la <code>barra espaciadora</code> y arrastra. El botón <code>Área</code> encuadra la selección actual. En pantallas táctiles, pellizca con dos dedos.</p>
     </section>
     <section>
       <h3>Tu propio catálogo</h3>
@@ -506,7 +546,7 @@ const toHex = (r,g,b) => '#'+[r,g,b].map(v=>v.toString(16).padStart(2,'0')).join
    3. Estado
    ============================================================ */
 const $ = id => document.getElementById(id);
-const stage=$('stage'), holder=$('holder'), canvas=$('photo'), marquee=$('marquee'), foot=$('foot');
+const stage=$('stage'), holder=$('holder'), canvas=$('photo'), marquee=$('marquee'), foot=$('foot'), viewport=$('viewport');
 const ctx = canvas.getContext('2d', {willReadFrequently:true});
 
 let imgW=0, imgH=0;          // tamaño real del lienzo
@@ -564,12 +604,14 @@ function drawSource(src,w,h){
   canvas.width=imgW; canvas.height=imgH;
   ctx.drawImage(src,0,0,imgW,imgH);
   pixels = ctx.getImageData(0,0,imgW,imgH);
-  holder.hidden=false; foot.hidden=false;
+  holder.hidden=false; foot.hidden=false; $('zoombar').hidden=false;
   $('dropnote').style.display='none';
   stage.classList.remove('is-empty');
   gains=[1,1,1]; updateWbUi();
   sel = {x:Math.round(imgW*0.3), y:Math.round(imgH*0.3), w:Math.round(imgW*0.4), h:Math.round(imgH*0.4)};
-  drawMarquee(); measure();
+  fitMode=true; zoom=fitZoom(); applyZoom();
+  viewport.scrollLeft=0; viewport.scrollTop=0;
+  measure();
 }
 
 $('file').addEventListener('change', e=>useFile(e.target.files[0]));
@@ -599,7 +641,147 @@ $('demo').addEventListener('click',()=>{
 });
 
 /* ============================================================
-   5. Selección con el ratón / dedo
+   5. Zoom y navegación
+   ------------------------------------------------------------
+   `zoom` = píxeles de pantalla por píxel de imagen (1 = 100%).
+   El resto del código sigue midiendo con scale(), que lee el
+   ancho real del lienzo, así que la selección funciona igual
+   a cualquier nivel de zoom.
+   ============================================================ */
+const MINZ=0.05, MAXZ=16, PAD_X=36, PAD_Y=64;   // PAD_Y = padding del visor + alto del pie
+let zoom=1;
+let fitMode=true;        // sigue el tamaño del escenario mientras no toques el zoom a mano
+
+function avail(){
+  return { w:Math.max(40, viewport.clientWidth-PAD_X), h:Math.max(40, viewport.clientHeight-PAD_Y) };
+}
+function fitZoom(){
+  if(!imgW) return 1;
+  const a=avail();
+  return Math.max(MINZ, Math.min(1, a.w/imgW, a.h/imgH));   // nunca amplía de más al ajustar
+}
+function applyZoom(){
+  if(!imgW) return;
+  canvas.style.width=(imgW*zoom)+'px';
+  canvas.style.height=(imgH*zoom)+'px';
+  canvas.classList.toggle('px', zoom>=4);
+  drawMarquee(); updateZoomUi();
+}
+function vpCenter(){
+  const r=viewport.getBoundingClientRect();
+  return { x:r.left+r.width/2, y:r.top+(r.height-28)/2 };
+}
+/* Cambia el zoom dejando quieto el punto de la imagen que hay bajo `anchor` */
+function setZoom(z, anchor, keepFit){
+  if(!imgW) return;
+  z=Math.max(MINZ, Math.min(MAXZ, z));
+  const a=anchor||vpCenter();
+  const before=toImg({clientX:a.x, clientY:a.y});
+  zoom=z; if(!keepFit) fitMode=false;
+  applyZoom();
+  const r=canvas.getBoundingClientRect();
+  viewport.scrollLeft += (r.left+before.x*zoom)-a.x;
+  viewport.scrollTop  += (r.top +before.y*zoom)-a.y;
+}
+function zoomBy(f, anchor){ setZoom(zoom*f, anchor); }
+function fitToStage(){ if(!imgW) return; fitMode=true; setZoom(fitZoom(), vpCenter(), true); }
+function centerOn(x,y){
+  const r=canvas.getBoundingClientRect(), c=vpCenter();
+  viewport.scrollLeft += (r.left+x*zoom)-c.x;
+  viewport.scrollTop  += (r.top +y*zoom)-c.y;
+}
+function zoomToSel(){
+  if(!imgW||!sel) return;
+  const a=avail();
+  setZoom(Math.min(a.w/Math.max(sel.w,2), a.h/Math.max(sel.h,2)));
+  centerOn(sel.x+sel.w/2, sel.y+sel.h/2);
+}
+function updateZoomUi(){
+  $('zoomLevel').textContent=Math.round(zoom*100)+'%';
+  $('zoomOut').disabled = zoom<=MINZ+1e-6;
+  $('zoomIn').disabled  = zoom>=MAXZ-1e-6;
+  updateFoot();
+}
+$('zoomIn').addEventListener('click', ()=>zoomBy(1.25));
+$('zoomOut').addEventListener('click', ()=>zoomBy(1/1.25));
+$('zoomFit').addEventListener('click', fitToStage);
+$('zoomSel').addEventListener('click', zoomToSel);
+$('zoomLevel').addEventListener('click', ()=>{ Math.abs(zoom-1)<0.005 ? fitToStage() : setZoom(1); });
+
+/* rueda con Ctrl/⌘, y pellizco en el trackpad */
+viewport.addEventListener('wheel', e=>{
+  if(!imgW || !(e.ctrlKey||e.metaKey)) return;
+  e.preventDefault();
+  zoomBy(Math.exp(-e.deltaY*0.0018), {x:e.clientX, y:e.clientY});
+}, {passive:false});
+
+/* desplazar: barra espaciadora + arrastrar, o botón central del ratón */
+let pan=null, spaceDown=false;
+viewport.addEventListener('pointerdown', e=>{
+  if(!imgW) return;
+  if(e.button===1 || (spaceDown && e.button===0)){
+    e.preventDefault(); e.stopPropagation();     // en captura: no llega a iniciar una selección
+    pan={x:e.clientX, y:e.clientY, sl:viewport.scrollLeft, st:viewport.scrollTop};
+    viewport.classList.add('panning');
+    viewport.setPointerCapture?.(e.pointerId);
+  }
+}, true);
+viewport.addEventListener('mousedown', e=>{ if(e.button===1) e.preventDefault(); });
+viewport.addEventListener('auxclick', e=>{ if(e.button===1) e.preventDefault(); });
+window.addEventListener('pointermove', e=>{
+  if(!pan) return;
+  viewport.scrollLeft = pan.sl-(e.clientX-pan.x);
+  viewport.scrollTop  = pan.st-(e.clientY-pan.y);
+});
+window.addEventListener('pointerup', ()=>{ if(pan){ pan=null; viewport.classList.remove('panning'); } });
+
+/* pellizco con dos dedos */
+const pointers=new Map();
+let pinch=null;
+holder.addEventListener('pointerdown', e=>{
+  pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(pointers.size===2){
+    /* el segundo dedo cancela la selección en curso y recupera la anterior */
+    if(drag){ sel=drag.orig; drag=null; if(sel) clampSel(); drawMarquee(); measure(); }
+    e.stopPropagation();   /* en captura desde el contenedor: no llega ni al lienzo ni a los tiradores */
+    const [a,b]=[...pointers.values()];
+    pinch={ d:Math.hypot(a.x-b.x,a.y-b.y), mid:{x:(a.x+b.x)/2,y:(a.y+b.y)/2} };
+  }
+}, true);
+window.addEventListener('pointermove', e=>{
+  if(!pointers.has(e.pointerId)) return;
+  pointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+  if(!pinch || pointers.size<2) return;
+  const [a,b]=[...pointers.values()];
+  const d=Math.hypot(a.x-b.x,a.y-b.y), mid={x:(a.x+b.x)/2,y:(a.y+b.y)/2};
+  if(pinch.d>10 && d>10) setZoom(zoom*(d/pinch.d), mid);
+  viewport.scrollLeft -= mid.x-pinch.mid.x;
+  viewport.scrollTop  -= mid.y-pinch.mid.y;
+  pinch.d=d; pinch.mid=mid;
+});
+['pointerup','pointercancel'].forEach(t=>window.addEventListener(t, e=>{
+  pointers.delete(e.pointerId);
+  if(pointers.size<2) pinch=null;
+}));
+
+/* atajos de teclado */
+window.addEventListener('keydown', e=>{
+  if(/^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(e.target.tagName)) return;
+  if(e.code==='Space' && !spaceDown && imgW){
+    spaceDown=true; viewport.classList.add('pannable'); e.preventDefault(); return;
+  }
+  if(!imgW || e.ctrlKey || e.metaKey || e.altKey) return;
+  if(e.key==='+'||e.key==='='){ e.preventDefault(); zoomBy(1.25); }
+  else if(e.key==='-'||e.key==='_'){ e.preventDefault(); zoomBy(1/1.25); }
+  else if(e.key==='0'){ e.preventDefault(); fitToStage(); }
+  else if(e.key==='1'){ e.preventDefault(); setZoom(1); }
+});
+function releaseSpace(){ spaceDown=false; viewport.classList.remove('pannable'); }
+window.addEventListener('keyup', e=>{ if(e.code==='Space') releaseSpace(); });
+window.addEventListener('blur', releaseSpace);
+
+/* ============================================================
+   6. Selección con el ratón / dedo
    ============================================================ */
 function scale(){ const r=canvas.getBoundingClientRect(); return imgW ? imgW/r.width : 1; }
 function toImg(e){
@@ -620,7 +802,9 @@ function drawMarquee(){
   marquee.style.width=(sel.w/k)+'px'; marquee.style.height=(sel.h/k)+'px';
   marquee.classList.add('on');
 }
-window.addEventListener('resize', drawMarquee);
+window.addEventListener('resize', ()=>{
+  if(fitMode && imgW){ zoom=fitZoom(); applyZoom(); } else drawMarquee();
+});
 
 let drag=null;
 function startDrag(e, role){
@@ -635,8 +819,25 @@ canvas.addEventListener('pointerdown', e=>startDrag(e,'new'));
 marquee.querySelectorAll('[data-role]').forEach(el=>{
   el.addEventListener('pointerdown', e=>{ e.stopPropagation(); startDrag(e, el.dataset.role); });
 });
-window.addEventListener('pointermove', e=>{
-  if(!drag) return;
+/* Con zoom, al arrastrar cerca del borde el visor se desplaza solo */
+const EDGE=34, EDGE_STEP=13;
+let lastMove=null, edge={x:0,y:0}, edgeRaf=null;
+function edgeCheck(p){
+  const r=viewport.getBoundingClientRect();
+  const canX=viewport.scrollWidth>viewport.clientWidth+1, canY=viewport.scrollHeight>viewport.clientHeight+1;
+  edge.x = !canX ? 0 : p.clientX<r.left+EDGE ? -EDGE_STEP : p.clientX>r.right-EDGE ? EDGE_STEP : 0;
+  edge.y = !canY ? 0 : p.clientY<r.top+EDGE ? -EDGE_STEP : p.clientY>r.bottom-EDGE-28 ? EDGE_STEP : 0;
+  if((edge.x||edge.y) && edgeRaf===null) edgeRaf=requestAnimationFrame(edgeTick);
+}
+function edgeTick(){
+  edgeRaf=null;
+  if(!drag || (!edge.x && !edge.y)) return;
+  viewport.scrollLeft+=edge.x; viewport.scrollTop+=edge.y;
+  if(lastMove) updateDrag(lastMove);
+  edgeRaf=requestAnimationFrame(edgeTick);
+}
+
+function updateDrag(e){
   const p=toImg(e), dx=p.x-drag.start.x, dy=p.y-drag.start.y, o=drag.orig;
   if(drag.role==='new'){
     sel={ x:Math.min(drag.start.x,p.x), y:Math.min(drag.start.y,p.y), w:Math.abs(dx), h:Math.abs(dy) };
@@ -651,8 +852,17 @@ window.addEventListener('pointermove', e=>{
     sel={ x:Math.min(x1,x2), y:Math.min(y1,y2), w:Math.abs(x2-x1), h:Math.abs(y2-y1) };
   }
   clampSel(); drawMarquee(); measure();
+}
+window.addEventListener('pointermove', e=>{
+  if(!drag || pinch) return;
+  lastMove={clientX:e.clientX, clientY:e.clientY};
+  updateDrag(lastMove);
+  edgeCheck(lastMove);
 });
-window.addEventListener('pointerup', ()=>{ if(drag){ drag=null; measure(); } });
+window.addEventListener('pointerup', ()=>{
+  edge.x=edge.y=0;
+  if(drag){ drag=null; measure(); }
+});
 
 $('all').addEventListener('click', ()=>{
   if(!imgW) return;
@@ -660,7 +870,7 @@ $('all').addEventListener('click', ()=>{
 });
 
 /* ============================================================
-   6. Medición
+   7. Medición
    ============================================================ */
 function sampleArea(){
   if(!pixels || !sel) return null;
@@ -799,9 +1009,10 @@ function toast(msg){
 /* ---- pie del escenario ---- */
 function updateFoot(){
   if(!imgW) return;
+  const z=`<span>Zoom ${Math.round(zoom*100)}%</span>`;
   foot.innerHTML = sel
-    ? `<span>Imagen ${imgW}×${imgH}</span><span>Área ${Math.round(sel.w)}×${Math.round(sel.h)} px</span><span>Arrastra para marcar · tira de las esquinas para ajustar</span>`
-    : `<span>Imagen ${imgW}×${imgH}</span><span>Arrastra sobre la foto para marcar un área</span>`;
+    ? `<span>Imagen ${imgW}×${imgH}</span><span>Área ${Math.round(sel.w)}×${Math.round(sel.h)} px</span>${z}<span>Ctrl+rueda para acercar · espacio y arrastrar para moverte</span>`
+    : `<span>Imagen ${imgW}×${imgH}</span>${z}<span>Arrastra sobre la foto para marcar un área</span>`;
 }
 </script>
 </body>
